@@ -132,3 +132,15 @@ flycheck_*.el
 /network-security.data
 /doc/
 /Meta/
+
+# Benchmarks (local only)
+benchmarks/
+
+### Compiled sources ###
+src/*.o
+src/*.so
+src/*.dll
+src/symbols.rds
+
+### VS Code ###
+.vscode/
