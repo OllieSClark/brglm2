@@ -251,15 +251,13 @@ AS_median_adjustment <- function(pars, fit, level = 0,
         info_unscaled <- fit$info_beta / fit$precision
         inverse_info_unscaled <- fit$inverse_info_beta / fit$dispersion
 
-        b_vector <- numeric(nvars)
-        for (j in seq.int(nvars)) {
-            inverse_info_unscaled_j <- inverse_info_unscaled[j, ]
-            vcov_j <- tcrossprod(inverse_info_unscaled_j) / inverse_info_unscaled_j[j]
-            hats_j <- .rowSums((x %*% vcov_j) * x, nobs, nvars, TRUE) * fit$working_weights
-            b_vector[j] <- inverse_info_unscaled_j %*% .colSums(x * (hats_j *
-                (fit$d1mus * fit$d1varmus / (6 * fit$varmus) - 0.5 * fit$d2mus/fit$d1mus)),
-                nobs, nvars, TRUE)
-        }
+        ## The j-th hat values are w_i (x_i' v_j)^2 / v_jj, with v_j the
+        ## j-th row of inverse_info_unscaled, so all of b_vector follows
+        ## from a single n x p product instead of a loop over j
+        XV <- x %*% inverse_info_unscaled
+        b_vector <- .colSums(XV^3 * (fit$working_weights *
+            (fit$d1mus * fit$d1varmus / (6 * fit$varmus) - 0.5 * fit$d2mus/fit$d1mus)),
+            nobs, nvars, TRUE) / diag(inverse_info_unscaled)
         return(.colSums(0.5 * fit$hatvalues * fit$d2mus / fit$d1mus * x,
                    nobs, nvars, TRUE) +
            info_unscaled %*% b_vector)
