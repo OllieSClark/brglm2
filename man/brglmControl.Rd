@@ -17,6 +17,7 @@ brglmControl(
   response_adjustment = NULL,
   max_step_factor = 12,
   a = 1/2,
+  algorithm = "fisher_scoring",
   ...
 )
 
@@ -31,6 +32,7 @@ brglm_control(
   response_adjustment = NULL,
   max_step_factor = 12,
   a = 1/2,
+  algorithm = "fisher_scoring",
   ...
 )
 }
@@ -70,6 +72,10 @@ of such. Default is \code{NULL}. See Details.}
 consider. Default is \code{12}.}
 
 \item{a}{power of the Jeffreys prior penalty. See Details.}
+
+\item{algorithm}{the algorithm used to solve the adjusted score
+equations. Currently the only option is \code{"fisher_scoring"}
+(quasi Fisher scoring with step halving; default).}
 
 \item{...}{further arguments passed to \code{\link[=brglmControl]{brglmControl()}}. Currently
 ignored in the output.}

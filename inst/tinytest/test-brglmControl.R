@@ -10,6 +10,10 @@ expect_equal(b_control$inverseTrans, expression(transformed_dispersion))
 expect_equal(b_control$transformation, "identity")
 expect_equal(b_control$slowit, 1)
 expect_equal(b_control$max_step_factor, 12)
+expect_identical(b_control$algorithm, "fisher_scoring")
+
+## unknown algorithms are not accepted
+expect_error(brglmControl(algorithm = "ABCDEFG123"))
 
 b_control <- brglmControl(epsilon = 1e-02, trace = TRUE, response_adjustment = c(0.3, 0.2))
 ## the object brglmControl returns with defaults is as expected

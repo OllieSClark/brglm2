@@ -279,23 +279,6 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                      control = list(), intercept = TRUE,
                      ## Arguments that glm will not use in its call to brglmFit (be wise with defaults!)
                      fixed_totals = NULL, singular.ok = TRUE) {
-    trace_iteration <- function() {
-        if (iter %% control$trace == 0) {
-            st <-  max(abs(step_beta), na.rm = TRUE)
-            gr <- max(abs(adjusted_grad_beta), na.rm = TRUE)
-            cat("Coefficients update:\t")
-            cat("Outer/Inner iteration:\t", sprintf("%03d", iter), "/", sprintf("%03d", step_factor), "\n", sep = "")
-            if (!no_dispersion) {
-                st <- abs(step_zeta)
-                gr <- abs(adjusted_grad_zeta)
-                cat("Dispersion update:\t")
-                cat("Outer iteration:\t", sprintf("%03d", iter), "\n")
-            }
-            cat("max |step|:", format(round(st, 6), nsmall = 6, scientific = FALSE), "\t",
-                "max |gradient|:", format(round(gr, 6), nsmall = 6, scientific = FALSE), "\n")
-        }
-    }
-
     ## FIXME: Redundant function for now
     refit <- function(y, betas_start = NULL) {
         ## Estimate Beta
@@ -307,44 +290,6 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                                              maxit = 2, trace = FALSE),
                               intercept = intercept))
         betas
-    }
-
-    ## compute_step_components does everything on the scale of the /transformed/ dispersion
-    compute_step_components <- function(pars, fit, level = 0) {
-
-        if (level == 0) {
-            # Beta components
-            grad <- fit$grad_beta
-            inverse_info <- fit$inverse_info_beta
-            adjustment <- adjustment_function(pars, fit = fit, level = 0, x, nobs, nvars, weights)
-
-            failed_adjustment <- any(is.na(adjustment))
-            failed_inversion <- FALSE  # Already computed successfully
-        }
-        else {
-            # Dispersion components
-            if (fit$no_dispersion || df_residual < 1) {
-                grad <- adjustment <- inverse_info <- NA_real_
-                failed_adjustment <- failed_inversion <- FALSE
-            } else {
-                d1zeta <- eval(d1_transformed_dispersion)
-                d2zeta <- eval(d2_transformed_dispersion)
-
-                grad <- fit$grad_zeta / d1zeta
-                inverse_info <- fit$inverse_info_zeta * d1zeta^2
-                adjustment <- adjustment_function(pars, fit = fit, level = 1, x, nobs, nvars, weights) / d1zeta -
-                            0.5 * d2zeta / d1zeta^2
-
-                failed_inversion <- !is.finite(inverse_info)
-                failed_adjustment <- is.na(adjustment)
-            }
-        }
-
-        list(grad = grad,
-             inverse_info = inverse_info,
-             adjustment = adjustment,
-             failed_adjustment = failed_adjustment,
-             failed_inversion = failed_inversion)
     }
 
     customTransformation <- is.list(control$transformation) & length(control$transformation) == 2
@@ -634,165 +579,34 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             control$max_step_factor <- 1
         }
 
-        ## Evaluate at the starting values
-        theta <- c(betas, dispersion)
-        transformed_dispersion <- eval(control$Trans)
-
-        ## Compute fit
-        fit <- compute_fit(pars = theta,
-                    y = y,
-                    x = x,
-                    weights = weights,
-                    offset = offset,
-                    family = family,
-                    fixed_totals = fixed_totals,
-                    row_totals = row_totals,
-                    no_dispersion = no_dispersion,
-                    nobs = nobs,
-                    nvars = nvars,
-                    keep = keep,
-                    need_qr = TRUE,
-                    need_hatvalues = TRUE)
-
-        step_components_beta <- compute_step_components(theta, level = 0, fit = fit)
-        step_components_zeta <- compute_step_components(theta, level = 1, fit = fit)
-        if (step_components_beta$failed_inversion) {
-            warning("failed to invert the information matrix")
-        }
-        if (step_components_beta$failed_adjustment) {
-            warning("failed to calculate score adjustment")
-        }
-        adjusted_grad_beta <- with(step_components_beta, {
-            grad + adjustment
-        })
-        step_beta <- drop(step_components_beta$inverse_info %*% adjusted_grad_beta)
-        ## Dispersion quantities
-        if (no_dispersion) {
-            adjusted_grad_zeta <- step_zeta <- NA_real_
-        } else {
-            if (step_components_zeta$failed_inversion) {
-                warning("failed to invert the information matrix")
-            }
-            if (step_components_zeta$failed_adjustment) {
-                warning("failed to calculate score adjustment")
-            }
-            adjusted_grad_zeta <- with(step_components_zeta, {
-                grad + adjustment
-            })
-            step_zeta <- as.vector(adjusted_grad_zeta * step_components_zeta$inverse_info)
-        }
-
         ## Main iterations
-        slowit <- control$slowit
-        if (control$maxit == 0) {
-            iter <- 0
-            failed <- FALSE
-        } else {
-            ## Outer iteration
-            for (iter in seq.int(control$maxit)) {
-                step_factor <- 0
-                testhalf <- TRUE
-                ## Inner iteration
-                while (testhalf & step_factor < control$max_step_factor) {
-                    ## store previous values
-                    betas0 <- betas
-                    dispersion0 <- dispersion
-                    step_beta_previous <- step_beta
-                    step_zeta_previous <- step_zeta
-
-                    ## Update betas
-                    betas <- betas + slowit * 2^(-step_factor) * step_beta
-
-                    ## Update zetas
-                    if (!no_dispersion & df_residual > 0) {
-                        transformed_dispersion <- eval(control$Trans)
-                        transformed_dispersion <- transformed_dispersion + 2^(-step_factor) * step_zeta
-                        dispersion <- eval(control$inverseTrans)
-                    }
-
-                    ## Compute key quantities
-                    theta <- c(betas, dispersion)
-                    transformed_dispersion <- eval(control$Trans)
-
-                    ## Mean quantities
-                    fit <- try(compute_fit(pars = theta,
-                                                    y = y,
-                                                    x = x,
-                                                    weights = weights,
-                                                    offset = offset,
-                                                    family = family,
-                                                    fixed_totals = fixed_totals,
-                                                    row_totals = row_totals,
-                                                    no_dispersion = no_dispersion,
-                                                    nobs = nobs,
-                                                    nvars = nvars,
-                                                    keep = keep,
-                                                    need_qr = TRUE,
-                                                    need_hatvalues = TRUE), silent = TRUE)
-
-                    ## This is to capture qr failing and revering to previous estimates
-                    if (failed_adjustment_beta <- inherits(fit, "try-error")) {
-                        betas <- betas0
-                        dispersion <- dispersion0
-                        warning("failed to calculate score adjustment")
-                        break
-                    }
-                    step_components_beta <- compute_step_components(theta, level = 0, fit = fit)
-                    step_components_zeta <- compute_step_components(theta, level = 1, fit = fit)
-                    if (failed_inversion_beta <- step_components_beta$failed_inversion) {
-                        betas <- betas0
-                        dispersion <- dispersion0
-                        warning("failed to invert the information matrix")
-                        break
-                    }
-                    if (failed_adjustment_beta <- step_components_beta$failed_adjustment) {
-                        betas <- betas0
-                        dispersion <- dispersion0
-                        warning("failed to calculate score adjustment")
-                        break
-                    }
-                    adjusted_grad_beta <- with(step_components_beta, grad + adjustment)
-                    step_beta <- drop(step_components_beta$inverse_info %*% adjusted_grad_beta)
-
-                    ## Dispersion quantities
-                    if (no_dispersion) {
-                        adjusted_grad_zeta <- step_zeta <- NA_real_
-                        failed_inversion_zeta <- failed_adjustment_zeta <- FALSE
-                    } else {
-                        if (failed_inversion_zeta <- step_components_zeta$failed_inversion) {
-                            warning("failed to invert the information matrix")
-                            break
-                        }
-                        if (failed_adjustment_zeta <- step_components_zeta$failed_adjustment) {
-                            warning("failed to calculate score adjustment")
-                            break
-                        }
-                        adjusted_grad_zeta <- with(step_components_zeta, grad + adjustment)
-                        step_zeta <- as.vector(adjusted_grad_zeta * step_components_zeta$inverse_info)
-                    }
-
-                    ## Convergence criteria
-                    linf_current <- max(abs(c(step_beta, step_zeta)), na.rm = TRUE)
-                    linf_previous <- max(abs(c(step_beta_previous, step_zeta_previous)), na.rm = TRUE)
-                    testhalf <- linf_current > linf_previous
-
-                    ## Continue inner loop
-                    ## if (step_factor == 0 & iter == 1)  {
-                    ##     testhalf <- TRUE
-                    ## }
-                    step_factor <- step_factor + 1
-
-                    ##  Trace here
-                    if (control$trace) {
-                        trace_iteration()
-                    }
-                }
-                failed <- failed_adjustment_beta || failed_inversion_beta || failed_adjustment_zeta || failed_inversion_zeta
-                if (failed || linf_current < control$epsilon) {
-                    break
-                }
-            }
-        }
+        iteration <- switch(control$algorithm,
+                            "fisher_scoring" = fit_fisher_scoring(betas = betas,
+                                                                  dispersion = dispersion,
+                                                                  y = y,
+                                                                  x = x,
+                                                                  weights = weights,
+                                                                  offset = offset,
+                                                                  family = family,
+                                                                  fixed_totals = fixed_totals,
+                                                                  row_totals = row_totals,
+                                                                  no_dispersion = no_dispersion,
+                                                                  nobs = nobs,
+                                                                  nvars = nvars,
+                                                                  keep = keep,
+                                                                  df_residual = df_residual,
+                                                                  adjustment_function = adjustment_function,
+                                                                  d1_transformed_dispersion = d1_transformed_dispersion,
+                                                                  d2_transformed_dispersion = d2_transformed_dispersion,
+                                                                  control = control))
+        betas <- iteration$betas
+        dispersion <- iteration$dispersion
+        transformed_dispersion <- iteration$transformed_dispersion
+        adjusted_grad_beta <- iteration$adjusted_grad_beta
+        adjusted_grad_zeta <- iteration$adjusted_grad_zeta
+        step_components_zeta <- iteration$step_components_zeta
+        iter <- iteration$iter
+        failed <- iteration$failed
 
         adjusted_grad_all[betas_names] <- adjusted_grad_beta
         adjusted_grad_all["Transformed dispersion"] <- adjusted_grad_zeta
