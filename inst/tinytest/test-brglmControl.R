@@ -10,8 +10,17 @@ expect_equal(b_control$inverseTrans, expression(transformed_dispersion))
 expect_equal(b_control$transformation, "identity")
 expect_equal(b_control$slowit, 1)
 expect_equal(b_control$max_step_factor, 12)
-expect_identical(b_control$algorithm, "fisher_scoring")
+expect_identical(b_control$algorithm, getOption("brglm2.algorithm", "fisher_scoring"))
 expect_identical(b_control$sparse, "auto")
+
+## the default algorithm can be set with options(), and the argument
+## takes precedence over the option
+op <- options(brglm2.algorithm = "trust_region")
+expect_identical(brglmControl()$algorithm, "trust_region")
+expect_identical(brglmControl(algorithm = "fisher_scoring")$algorithm, "fisher_scoring")
+options(brglm2.algorithm = "fisher_scoring")
+expect_identical(brglmControl()$algorithm, "fisher_scoring")
+options(op)
 
 ## unknown algorithms and sparse options are not accepted
 expect_error(brglmControl(algorithm = "ABCDEFG123"))

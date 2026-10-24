@@ -414,7 +414,7 @@ print.summary.brmultinom <- function(x, digits = x$digits, ...)
     cat("Log-likelihood:", format(x$logLik), "\n")
     cat("AIC:", format(x$AIC))
     cat("\n\nType of estimator:", x$type, get_type_description(x$type))
-    cat("\n", "Number of Fisher Scoring iterations: ", x$iter, "\n", sep = "")
+    cat("\n", "Number of ", iteration_name(x$control$algorithm), " iterations: ", x$iter, "\n", sep = "")
     if (!is.null(correl <- x$correlation)) {
         p <- dim(correl)[2L]
         if (p > 1) {
