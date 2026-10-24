@@ -18,6 +18,7 @@ brglmControl(
   max_step_factor = 12,
   a = 1/2,
   algorithm = "fisher_scoring",
+  sparse = c("auto", "always", "never"),
   ...
 )
 
@@ -33,6 +34,7 @@ brglm_control(
   max_step_factor = 12,
   a = 1/2,
   algorithm = "fisher_scoring",
+  sparse = c("auto", "always", "never"),
   ...
 )
 }
@@ -76,6 +78,10 @@ consider. Default is \code{12}.}
 \item{algorithm}{the algorithm used to solve the adjusted score
 equations. Currently the only option is \code{"fisher_scoring"}
 (quasi Fisher scoring with step halving; default).}
+
+\item{sparse}{whether a sparse representation of the model matrix
+should be used. The options are \code{"auto"} (default), \code{"always"}
+and \code{"never"}. See Details.}
 
 \item{...}{further arguments passed to \code{\link[=brglmControl]{brglmControl()}}. Currently
 ignored in the output.}
@@ -155,6 +161,18 @@ The estimates from \code{type = "AS_mean"} and \code{type = "MPL_Jeffreys"} with
 Poisson log-linear models and logistic regression models, i.e. for
 binomial and Poisson regression models with canonical links. See,
 Firth (1993) for details.
+
+When \code{sparse = "always"}, \code{\link[=brglmFit]{brglmFit()}} works with the model matrix
+as a sparse matrix (see \code{\link[Matrix:sparseMatrix]{Matrix::sparseMatrix()}}), using a Cholesky
+decomposition of the information matrix in place of a QR
+decomposition of the weighted model matrix. This is faster when the
+model matrix has many columns and most of its entries are zero, as
+happens, for example, with factors that have many levels. When
+\code{sparse = "auto"} (default), the sparse representation is used if
+the model matrix supplied to \code{\link[=brglmFit]{brglmFit()}} is already a sparse
+matrix, or if it has more than 20 columns and less than 20\% of its
+entries are non-zero. \code{sparse = "never"} always uses the dense model
+matrix.
 
 \code{\link[=brglm_control]{brglm_control()}} is an alias to \code{\link[=brglmControl]{brglmControl()}}.
 }
