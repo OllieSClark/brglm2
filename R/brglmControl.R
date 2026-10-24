@@ -48,8 +48,10 @@
 #'     of such. Default is `NULL`. See Details.
 #' @param a power of the Jeffreys prior penalty. See Details.
 #' @param algorithm the algorithm used to solve the adjusted score
-#'     equations. Currently the only option is `"fisher_scoring"`
-#'     (quasi Fisher scoring with step halving; default).
+#'     equations. The options are `"fisher_scoring"` (quasi Fisher
+#'     scoring with step halving) and `"trust_region"`. The default is
+#'     the value of `getOption("brglm2.algorithm")`, or
+#'     `"fisher_scoring"` if that is not set. See Details.
 #' @param sparse whether a sparse representation of the model matrix
 #'     should be used. The options are `"auto"` (default), `"always"`
 #'     and `"never"`. See Details.
@@ -126,6 +128,16 @@
 #' binomial and Poisson regression models with canonical links. See,
 #' Firth (1993) for details.
 #'
+#' When `algorithm = "trust_region"`, each iteration approximately
+#' minimises a quadratic model of the squared norm of the adjusted
+#' score for the regression parameters within a trust region, using
+#' preconditioned conjugate gradients (Steihaug, 1983), and the
+#' dispersion parameter, if any, is updated with a Newton step. The
+#' trust region can make the iteration more robust to poor starting
+#' values. `type = "correction"` always uses `"fisher_scoring"`.
+#' `options(brglm2.algorithm = "trust_region")` makes the trust region
+#' the default for all subsequent fits.
+#'
 #' When `sparse = "always"`, [brglmFit()] works with the model matrix
 #' as a sparse matrix (see [Matrix::sparseMatrix()]), using a Cholesky
 #' decomposition of the information matrix in place of a QR
@@ -161,6 +173,10 @@
 #' Firth D (1993). Bias reduction of maximum likelihood estimates.
 #' Biometrika, **80**, 27-38. \doi{10.2307/2336755}.
 #'
+#' Steihaug T (1983). The conjugate gradient method and trust regions
+#' in large scale optimization. *SIAM Journal on Numerical Analysis*,
+#' **20**, 626-637. \doi{10.1137/0720042}.
+#'
 #' @examples
 #'
 #' data("coalition", package = "brglm2")
@@ -192,10 +208,10 @@ brglmControl <- function(epsilon = 1e-06, maxit = 100,
                          response_adjustment = NULL,
                          max_step_factor = 12,
                          a = 1/2,
-                         algorithm = "fisher_scoring",
+                         algorithm = getOption("brglm2.algorithm", "fisher_scoring"),
                          sparse = c("auto", "always", "never"), ...) {
     type <- match.arg(type)
-    algorithm <- match.arg(algorithm)
+    algorithm <- match.arg(algorithm, c("fisher_scoring", "trust_region"))
     sparse <- match.arg(sparse)
 
     if (is.character(transformation)) {

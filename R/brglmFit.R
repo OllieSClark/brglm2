@@ -593,28 +593,32 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             if (control$maxit > 0) control$maxit <- 1
             control$slowit <- 1
             control$max_step_factor <- 1
+            ## The correction is a single Fisher scoring step
+            control$algorithm <- "fisher_scoring"
         }
 
         ## Main iterations
-        iteration <- switch(control$algorithm,
-                            "fisher_scoring" = fit_fisher_scoring(betas = betas,
-                                                                  dispersion = dispersion,
-                                                                  y = y,
-                                                                  x = x,
-                                                                  weights = weights,
-                                                                  offset = offset,
-                                                                  family = family,
-                                                                  fixed_totals = fixed_totals,
-                                                                  row_totals = row_totals,
-                                                                  no_dispersion = no_dispersion,
-                                                                  nobs = nobs,
-                                                                  nvars = nvars,
-                                                                  keep = keep,
-                                                                  df_residual = df_residual,
-                                                                  adjustment_function = adjustment_function,
-                                                                  d1_transformed_dispersion = d1_transformed_dispersion,
-                                                                  d2_transformed_dispersion = d2_transformed_dispersion,
-                                                                  control = control))
+        fit_iteration <- switch(control$algorithm,
+                                "fisher_scoring" = fit_fisher_scoring,
+                                "trust_region" = fit_trust_region)
+        iteration <- fit_iteration(betas = betas,
+                                   dispersion = dispersion,
+                                   y = y,
+                                   x = x,
+                                   weights = weights,
+                                   offset = offset,
+                                   family = family,
+                                   fixed_totals = fixed_totals,
+                                   row_totals = row_totals,
+                                   no_dispersion = no_dispersion,
+                                   nobs = nobs,
+                                   nvars = nvars,
+                                   keep = keep,
+                                   df_residual = df_residual,
+                                   adjustment_function = adjustment_function,
+                                   d1_transformed_dispersion = d1_transformed_dispersion,
+                                   d2_transformed_dispersion = d2_transformed_dispersion,
+                                   control = control)
         betas <- iteration$betas
         dispersion <- iteration$dispersion
         transformed_dispersion <- iteration$transformed_dispersion
@@ -889,6 +893,7 @@ summary.brglmFit <- function(object, dispersion = NULL,
                        correlation = correlation,
                        symbolic.cor = symbolic.cor, ...)
     out$type <- object$type
+    out$algorithm <- object$control$algorithm
     class(out) <- c("summary.brglmFit", class(out))
     out
 }
@@ -990,7 +995,7 @@ print.summary.brglmFit <- function (x, digits = max(3L, getOption("digits") - 3L
         cat("  (", mess, ")\n", sep = "")
     cat("AIC: ", format(x$aic, digits = max(4L, digits + 1L)))
     cat("\n\nType of estimator:", x$type, get_type_description(x$type))
-    cat("\n", "Number of Fisher Scoring iterations: ", x$iter, "\n", sep = "")
+    cat("\n", "Number of ", iteration_name(x$algorithm), " iterations: ", x$iter, "\n", sep = "")
     correl <- x$correlation
     if (!is.null(correl)) {
         p <- NCOL(correl)
