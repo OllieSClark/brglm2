@@ -342,7 +342,10 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
     ## names, nobs, nvars, and initialize weights and offsets if
     ## needed
 
-    x <- as.matrix(x)
+    is_sparse <- inherits(x, "sparseMatrix")
+    if (!is_sparse) {
+        x <- as.matrix(x)
+    }
     betas_names <- dimnames(x)[[2L]]
     nvars <- ncol(x)
     EMPTY <- nvars == 0
@@ -357,6 +360,19 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
     }
     if (missing_offset <- is.null(offset)) {
         offset <- rep.int(0, nobs)
+    }
+
+    ## Use a sparse representation of x if requested, or, with sparse =
+    ## "auto", if x is already sparse or has more than 20 columns with
+    ## less than 20% non-zero entries
+    use_sparse <- !EMPTY && switch(control$sparse,
+                                   "always" = TRUE,
+                                   "never" = FALSE,
+                                   "auto" = is_sparse || (nvars > 20 && sum(x != 0) / (nobs * nvars) < 0.2))
+    if (use_sparse) {
+        x <- methods::as(methods::as(methods::as(x, "dMatrix"), "generalMatrix"), "CsparseMatrix")
+    } else if (is_sparse) {
+        x <- as.matrix(x)
     }
 
     ok_links <- c("logit", "probit", "cauchit",
@@ -451,7 +467,7 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             rank <- nvars_all <- nvars
             betas_names_all <- betas_names
         } else {
-            qrx <- qr(x)
+            qrx <- qr(if (use_sparse) as.matrix(x) else x)
             rank <- qrx$rank
             is_full_rank <- rank == nvars
             if (!isTRUE(singular.ok) && !isTRUE(is_full_rank)) {
@@ -496,7 +512,7 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             ## ML fit to get starting values
             ## Get startng values and kill warnings whilst doing that
             suppressWarnings(
-                tempFit <- glm.fit(x = x, y = y.adj, weights = weights.adj,
+                tempFit <- glm.fit(x = if (use_sparse) as.matrix(x) else x, y = y.adj, weights = weights.adj,
                                    etastart = etastart, mustart = mustart,
                                    offset = offset, family = family,
                                    control = list(epsilon = control$epsilon,
@@ -631,6 +647,11 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             betas <- betas_all
             betas[is.na(betas)] <- 0
             nvars <- nvars_all
+        }
+
+        ## The QR decomposition in the result is of the dense model matrix
+        if (use_sparse) {
+            x <- as.matrix(x)
         }
 
         ## If has_fixed_totals = TRUE, then scale fitted values before
