@@ -10,13 +10,13 @@ mod <- enrich(glm(conc ~ lot*log(u), data = clotting, family = Gamma()))
 
 ifun <- get_information_function(mod)
 
-penloglik <- function(pars, X, y) {
+penloglik <- function(pars, X, y, a = 0.5) {
     p <- ncol(X)
     beta <- pars[1:p]
     dispersion <- pars[p + 1]
     eta <- X %*% beta
     mu <- 1/eta
-    sum(dgamma(y, shape = 1/dispersion, scale = mu * dispersion, log = TRUE)) + 0.5 * log(det(ifun(beta, dispersion)))
+    sum(dgamma(y, shape = 1/dispersion, scale = mu * dispersion, log = TRUE)) + a * log(det(ifun(beta, dispersion)))
 }
 
 modjef <- update(mod, method = "brglmFit", type = "MPL_Jeffreys", epsilon = 1e-15)
@@ -36,6 +36,13 @@ g2 <- grad(penloglik,
            X = model.matrix(mod),
            y = model.response(mod$model))
 expect_equal(unname(g1), g2, tolerance = 1e-05)
+
+## the same holds for other powers of the Jeffreys prior
+modjef1 <- update(mod, method = "brglmFit", type = "MPL_Jeffreys", epsilon = 1e-15, a = 1)
+expect_equal(grad(penloglik,
+                  x = coef(modjef1, model = "full"),
+                  X = model.matrix(mod),
+                  y = model.response(mod$model), a = 1), rep(0, 5), tolerance = 1.5 * 1e-05)
 
 ## source(system.file("inst", "brglm0/brglm0.R", package = "brglm2"))
 data("lizards", package = "brglm2")

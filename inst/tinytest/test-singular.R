@@ -11,3 +11,12 @@ Y <- mod$y
 expect_error(brglm_fit(X, Y, family = Gamma(), singular.ok = FALSE),
              pattern = "singular fit encountered")
 expect_true(is.na(coef(brglm_fit(X, Y, family = Gamma(), singular.ok = TRUE))["I(2 * log(u))"]))
+
+## aliased columns of zeros (from an unused factor level) are handled
+## like any other aliased column
+clotting$lot3 <- factor(clotting$lot, levels = c("1", "2", "3"))
+X3 <- model.matrix(~ lot3*log(u), data = clotting)
+fit3 <- brglm_fit(X3, Y, family = Gamma())
+fit2 <- brglm_fit(model.matrix(~ lot*log(u), data = clotting), Y, family = Gamma())
+expect_true(all(is.na(coef(fit3)[c("lot33", "lot33:log(u)")])))
+expect_equal(unname(coef(fit3)[!is.na(coef(fit3))]), unname(coef(fit2)), tolerance = 1e-08)

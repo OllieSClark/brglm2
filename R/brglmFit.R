@@ -359,7 +359,7 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                                   "AS_mean" = AS_mean_adjustment,
                                   "AS_median" = AS_median_adjustment,
                                   "AS_mixed" = AS_mixed_adjustment,
-                                  "MPL_Jeffreys" = AS_Jeffreys_adjustment,
+                                  "MPL_Jeffreys" = function(...) AS_Jeffreys_adjustment(..., a = control$a),
                                   "ML" = function(pars, ...) 0)
 
     ## Some useful quantities
@@ -823,7 +823,9 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
         ## If has_fixed_totals = TRUE, then scale fitted values before
         ## calculating QR decompositions, fitted values, etas,
         ## residuals and working_weights
-
+        ##
+        ## The inverse of the information is not needed here, and
+        ## cannot be computed if x has aliased columns that are zero
         fit <- compute_fit(pars = c(betas, dispersion),
                         y = y,
                         x = x,
@@ -837,7 +839,8 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                         nvars = nvars,
                         keep = keep,
                         need_qr = TRUE,
-                        need_hatvalues = FALSE)
+                        need_hatvalues = FALSE,
+                        need_inverse = FALSE)
 
         qr.Wx <- fit$qr_decomposition
 

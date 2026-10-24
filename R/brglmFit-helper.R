@@ -32,12 +32,14 @@
 #' @param keep Logical vector indicating which observations to keep
 #' @param need_qr Logical indicating if QR decomposition is needed
 #' @param need_hatvalues Logical indicating if hat values are needed
+#' @param need_inverse Logical indicating if the inverse of the information is needed
 #'
 #' @return A list of class "brglmFit_quantities" containing all computed quantities
 compute_fit <- function(pars, y, x, weights, offset, family,
                         fixed_totals = NULL, row_totals = NULL,
                         no_dispersion = FALSE, nobs, nvars, keep,
-                        need_qr = TRUE, need_hatvalues = TRUE) {
+                        need_qr = TRUE, need_hatvalues = TRUE,
+                        need_inverse = TRUE) {
 
     # Extract Parameters
     betas <- pars[seq.int(nvars)]
@@ -72,7 +74,9 @@ compute_fit <- function(pars, y, x, weights, offset, family,
 
         # Information Matrices
         info_beta <- precision * crossprod(R_matrix)
-        inverse_info_beta <- dispersion * chol2inv(R_matrix)
+        if (need_inverse) {
+            inverse_info_beta <- dispersion * chol2inv(R_matrix)
+        }
 
         # Hat Values (only if needed and we have QR)
         if (need_hatvalues) {
