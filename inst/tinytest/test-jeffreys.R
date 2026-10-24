@@ -38,11 +38,14 @@ g2 <- grad(penloglik,
 expect_equal(unname(g1), g2, tolerance = 1e-05)
 
 ## the same holds for other powers of the Jeffreys prior
-modjef1 <- update(mod, method = "brglmFit", type = "MPL_Jeffreys", epsilon = 1e-15, a = 1)
-expect_equal(grad(penloglik,
-                  x = coef(modjef1, model = "full"),
-                  X = model.matrix(mod),
-                  y = model.response(mod$model), a = 1), rep(0, 5), tolerance = 1.5 * 1e-05)
+expect_warning(
+    g1 <- update(mod, method = "brglmFit", type = "MPL_Jeffreys", a = 1, maxit = 0, start = coef(mod, model = "full"))$grad
+)
+g2 <- grad(penloglik,
+           x = coef(mod, model = "full"),
+           X = model.matrix(mod),
+           y = model.response(mod$model), a = 1)
+expect_equal(unname(g1), g2, tolerance = 1e-05)
 
 ## source(system.file("inst", "brglm0/brglm0.R", package = "brglm2"))
 data("lizards", package = "brglm2")
