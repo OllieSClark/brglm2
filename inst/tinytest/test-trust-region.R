@@ -74,12 +74,20 @@ expect_warning(
 )
 expect_true(max(abs(fit_check$grad), na.rm = TRUE) < 1e-04)
 
-## convergence is not reported when the adjusted score is not zero
-expect_warning(fit_tr <- endo_fit("cauchit", "MPL_Jeffreys", algorithm = "trust_region"),
-               pattern = "algorithm did not converge")
-expect_false(fit_tr$converged)
+## for maximum penalized likelihood, steps are assessed with the
+## penalized log-likelihood, and the trust region finds the maximum, where
+## Fisher scoring also diverges
+fit_tr <- endo_fit("cauchit", "MPL_Jeffreys", algorithm = "trust_region")
+expect_true(fit_tr$converged)
+expect_equal(unname(coef(fit_tr)), c(6.115486, 2.604345, -0.08664978, -3.799252), tolerance = 1e-05)
+expect_warning(
+    fit_check <- endo_fit("cauchit", "MPL_Jeffreys", algorithm = "fisher_scoring",
+                          start = coef(fit_tr), maxit = 0)
+)
+expect_true(max(abs(fit_check$grad), na.rm = TRUE) < 1e-04)
 
-## nor for maximum likelihood with infinite estimates (NV separates the response)
+## convergence is not reported for maximum likelihood with infinite
+## estimates (NV separates the response)
 expect_warning(fit_tr <- endo_fit("logit", "ML", algorithm = "trust_region"),
                pattern = "algorithm did not converge")
 expect_false(fit_tr$converged)

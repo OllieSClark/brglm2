@@ -118,12 +118,32 @@ fit_trust_region <- function(betas, dispersion, y, x, weights, offset, family,
     eta <- 0.1
     cg_maxiter <- min(nvars, 50)
 
+    ## Steps are assessed by the reduction in a merit function. For
+    ## maximum likelihood and maximum penalized likelihood, the adjusted
+    ## score is the gradient of the (penalized) log-likelihood, so its
+    ## negative is used; the quadratic model minimised for the step is then
+    ## a model of the merit itself, and every step is a descent direction.
+    ## Otherwise, the squared norm of the adjusted score is used
+    use_objective <- control$type %in% c("ML", "MPL_Jeffreys") && is.null(fixed_totals)
+    objective <- function(fit) {
+        penalty <- if (control$type == "MPL_Jeffreys") control$a * 2 * sum(log(abs(diag(fit$R_matrix)))) else 0
+        sum(fit$deviance_residuals) / (2 * fit$dispersion) - penalty
+    }
+
+    ## Candidates with invalid linear predictors or means are rejected, as
+    ## in glm.fit()
+    valid_eta <- unless_null(family$valideta, function(eta) TRUE)
+    valid_mu <- unless_null(family$validmu, function(mu) TRUE)
+
     failed <- FALSE
     if (control$maxit == 0) {
         iter <- 0L
     } else {
         for (iter in seq.int(control$maxit)) {
             r_adj_sq <- sum(adjusted_grad_beta^2)
+            if (use_objective) {
+                merit <- objective(fit)
+            }
 
             ## Tolerance for the CG iteration (Eisenstat & Walker, 1996, choice 2)
             cg_tol <- if (iter == 1) 0.5 else min(0.5, 0.9 * (r_adj_sq / r_adj_sq_previous)^2)
@@ -150,9 +170,13 @@ fit_trust_region <- function(betas, dispersion, y, x, weights, offset, family,
                                     tol = cg_tol,
                                     maxiter = cg_maxiter)
 
-            ## Predicted reduction in the squared norm of the adjusted score
+            ## Predicted reduction in the merit
             Fp <- if (is_sparse) Fmatvec(step$p) else drop(fit$info_beta %*% step$p)
-            pred_reduction <- r_adj_sq - sum((adjusted_grad_beta - Fp)^2)
+            pred_reduction <- if (use_objective) {
+                                  sum(adjusted_grad_beta * step$p) - 0.5 * sum(step$p * Fp)
+                              } else {
+                                  r_adj_sq - sum((adjusted_grad_beta - Fp)^2)
+                              }
 
             betas_candidate <- betas + step$p
             theta_candidate <- c(betas_candidate, dispersion)
@@ -172,7 +196,8 @@ fit_trust_region <- function(betas, dispersion, y, x, weights, offset, family,
                                              need_hatvalues = FALSE,
                                              need_inverse = need_inverse), silent = TRUE)
 
-            if (inherits(fit_candidate, "try-error")) {
+            if (inherits(fit_candidate, "try-error") ||
+                !valid_eta(fit_candidate$etas) || !valid_mu(fit_candidate$mus)) {
                 Delta <- shrink_factor * Delta
                 if (Delta < 1e-16) {
                     warning("trust region radius became too small")
@@ -182,19 +207,31 @@ fit_trust_region <- function(betas, dispersion, y, x, weights, offset, family,
                 next
             }
 
-            ## Actual reduction in the squared norm of the adjusted score. As
-            ## in quasi Fisher scoring, the hat values in the adjustment are
-            ## held at the current point; with the hat values at the
-            ## candidate, the model, which ignores the derivatives of the
-            ## adjustment, can fail to predict any reduction for small steps
-            fit_candidate$hatvalues <- fit$hatvalues
-            adjustment_candidate <- adjustment_function(theta_candidate, fit = fit_candidate, level = 0,
-                                                        x, nobs, nvars, weights)
-            r_adj_candidate <- fit_candidate$grad_beta + adjustment_candidate
-            actual_reduction <- r_adj_sq - sum(r_adj_candidate^2)
+            ## Actual reduction in the merit. For the squared norm of the
+            ## adjusted score, as in quasi Fisher scoring, the hat values in
+            ## the adjustment are held at the current point; with the hat
+            ## values at the candidate, the model, which ignores the
+            ## derivatives of the adjustment, can fail to predict any
+            ## reduction for small steps
+            if (use_objective) {
+                actual_reduction <- merit - objective(fit_candidate)
+            } else {
+                fit_candidate$hatvalues <- fit$hatvalues
+                adjustment_candidate <- adjustment_function(theta_candidate, fit = fit_candidate, level = 0,
+                                                            x, nobs, nvars, weights)
+                r_adj_candidate <- fit_candidate$grad_beta + adjustment_candidate
+                actual_reduction <- r_adj_sq - sum(r_adj_candidate^2)
+            }
 
-            rho <- if (abs(pred_reduction) < 1e-16) {
-                if (actual_reduction > 0) 1 else 0
+            ## A non-finite reduction rejects the step. Close to the
+            ## solution, the reduction in the objective is lost in rounding
+            ## error, and steps are accepted unless the objective clearly
+            ## increases
+            noise <- if (use_objective) 100 * .Machine$double.eps * max(1, abs(merit)) else 1e-16
+            rho <- if (!is.finite(actual_reduction)) {
+                -Inf
+            } else if (!is.finite(pred_reduction) || abs(pred_reduction) <= noise) {
+                if (actual_reduction > -noise) 1 else 0
             } else {
                 actual_reduction / pred_reduction
             }
