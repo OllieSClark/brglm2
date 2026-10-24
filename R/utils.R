@@ -23,6 +23,12 @@ unless_null <- function(x, if_null) {
 
 
 
+## Name of the iteration used by brglmFit, for printing; fits from
+## before the algorithm option have no control$algorithm
+iteration_name <- function(algorithm) {
+    if (identical(algorithm, "trust_region")) "trust-region" else "Fisher Scoring"
+}
+
 get_type_description <- function(type, parenthesized = TRUE) {
     pp <- function(txt) {
         ifelse(parenthesized, paste0("(", txt, ")"), txt)

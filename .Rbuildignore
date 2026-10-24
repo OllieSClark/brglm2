@@ -34,3 +34,6 @@ README_cache
 ^CRAN-SUBMISSION$
 ^doc$
 ^Meta$
+^benchmarks$
+^src/.*\.(o|so|dll)$
+^\.vscode$

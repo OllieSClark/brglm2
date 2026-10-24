@@ -17,6 +17,8 @@ brglmControl(
   response_adjustment = NULL,
   max_step_factor = 12,
   a = 1/2,
+  algorithm = getOption("brglm2.algorithm", "fisher_scoring"),
+  sparse = c("auto", "always", "never"),
   ...
 )
 
@@ -31,6 +33,8 @@ brglm_control(
   response_adjustment = NULL,
   max_step_factor = 12,
   a = 1/2,
+  algorithm = getOption("brglm2.algorithm", "fisher_scoring"),
+  sparse = c("auto", "always", "never"),
   ...
 )
 }
@@ -70,6 +74,16 @@ of such. Default is \code{NULL}. See Details.}
 consider. Default is \code{12}.}
 
 \item{a}{power of the Jeffreys prior penalty. See Details.}
+
+\item{algorithm}{the algorithm used to solve the adjusted score
+equations. The options are \code{"fisher_scoring"} (quasi Fisher
+scoring with step halving) and \code{"trust_region"}. The default is
+the value of \code{getOption("brglm2.algorithm")}, or
+\code{"fisher_scoring"} if that is not set. See Details.}
+
+\item{sparse}{whether a sparse representation of the model matrix
+should be used. The options are \code{"auto"} (default), \code{"always"}
+and \code{"never"}. See Details.}
 
 \item{...}{further arguments passed to \code{\link[=brglmControl]{brglmControl()}}. Currently
 ignored in the output.}
@@ -150,6 +164,28 @@ Poisson log-linear models and logistic regression models, i.e. for
 binomial and Poisson regression models with canonical links. See,
 Firth (1993) for details.
 
+When \code{algorithm = "trust_region"}, each iteration approximately
+minimises a quadratic model of the squared norm of the adjusted
+score for the regression parameters within a trust region, using
+preconditioned conjugate gradients (Steihaug, 1983), and the
+dispersion parameter, if any, is updated with a Newton step. The
+trust region can make the iteration more robust to poor starting
+values. \code{type = "correction"} always uses \code{"fisher_scoring"}.
+\code{options(brglm2.algorithm = "trust_region")} makes the trust region
+the default for all subsequent fits.
+
+When \code{sparse = "always"}, \code{\link[=brglmFit]{brglmFit()}} works with the model matrix
+as a sparse matrix (see \code{\link[Matrix:sparseMatrix]{Matrix::sparseMatrix()}}), using a Cholesky
+decomposition of the information matrix in place of a QR
+decomposition of the weighted model matrix. This is faster when the
+model matrix has many columns and most of its entries are zero, as
+happens, for example, with factors that have many levels. When
+\code{sparse = "auto"} (default), the sparse representation is used if
+the model matrix supplied to \code{\link[=brglmFit]{brglmFit()}} is already a sparse
+matrix, or if it has more than 20 columns and less than 20\% of its
+entries are non-zero. \code{sparse = "never"} always uses the dense model
+matrix.
+
 \code{\link[=brglm_control]{brglm_control()}} is an alias to \code{\link[=brglmControl]{brglmControl()}}.
 }
 \examples{
@@ -185,6 +221,10 @@ reduction in generalized linear models. \emph{Statistics and Computing},
 
 Firth D (1993). Bias reduction of maximum likelihood estimates.
 Biometrika, \strong{80}, 27-38. \doi{10.2307/2336755}.
+
+Steihaug T (1983). The conjugate gradient method and trust regions
+in large scale optimization. \emph{SIAM Journal on Numerical Analysis},
+\strong{20}, 626-637. \doi{10.1137/0720042}.
 }
 \seealso{
 \code{\link[=brglm_fit]{brglm_fit()}} and \code{\link[=glm.fit]{glm.fit()}}

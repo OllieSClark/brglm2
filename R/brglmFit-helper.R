@@ -16,11 +16,21 @@
 # Helper functions for brglmFit
 # These are self-contained functions that don't rely on parent scope
 
+## Column sums of v * x, that is t(x) %*% v, also when x is a sparse
+## matrix (where v * x does not scale the rows of x)
+.crossprod_vec <- function(v, x, nobs, nvars) {
+    if (inherits(x, "sparseMatrix")) {
+        as.vector(Matrix::crossprod(x, v))
+    } else {
+        .colSums(v * x, nobs, nvars, TRUE)
+    }
+}
+
 #' Compute all quantities needed for a GLM fit
 #'
 #' @param pars Vector of parameters (betas and dispersion)
 #' @param y Response vector
-#' @param x Design matrix
+#' @param x Design matrix (dense, or a CsparseMatrix)
 #' @param weights Observation weights
 #' @param offset Offset vector
 #' @param family GLM family object
@@ -45,6 +55,7 @@ compute_fit <- function(pars, y, x, weights, offset, family,
     betas <- pars[seq.int(nvars)]
     dispersion <- pars[nvars + 1]
     precision <- 1 / dispersion
+    is_sparse <- inherits(x, "sparseMatrix")
 
     # Basic Quantities
     etas <- drop(x %*% betas + offset)
@@ -68,20 +79,41 @@ compute_fit <- function(pars, y, x, weights, offset, family,
     info_beta <- inverse_info_beta <- NULL
 
     if (need_qr) {
-        wx <- sqrt(working_weights) * x
-        qr_decomposition <- qr(wx)
-        R_matrix <- qr.R(qr_decomposition)
+        if (is_sparse) {
+            # Sparse x: Cholesky of X'WX in place of the QR of sqrt(W)X.
+            # sqrt(W)X is formed by scaling the stored entries of x by the
+            # weight of their row
+            wx <- x
+            wx@x <- wx@x * sqrt(working_weights)[wx@i + 1L]
+            R_matrix <- chol(as.matrix(Matrix::crossprod(wx)))
 
-        # Information Matrices
-        info_beta <- precision * crossprod(R_matrix)
-        if (need_inverse) {
-            inverse_info_beta <- dispersion * chol2inv(R_matrix)
-        }
+            # Information Matrices
+            info_beta <- precision * crossprod(R_matrix)
+            if (need_inverse) {
+                inverse_info_beta <- dispersion * chol2inv(R_matrix)
+            }
 
-        # Hat Values (only if needed and we have QR)
-        if (need_hatvalues) {
-            Q_matrix <- qr.Q(qr_decomposition)
-            hatvalues <- .rowSums(Q_matrix * Q_matrix, nobs, nvars, TRUE)
+            # Hat Values: w_i ||R^{-T} x_i||^2
+            if (need_hatvalues) {
+                Z <- backsolve(R_matrix, t(as.matrix(x)), transpose = TRUE)
+                hatvalues <- working_weights * .colSums(Z * Z, nvars, nobs, TRUE)
+            }
+        } else {
+            wx <- sqrt(working_weights) * x
+            qr_decomposition <- qr(wx)
+            R_matrix <- qr.R(qr_decomposition)
+
+            # Information Matrices
+            info_beta <- precision * crossprod(R_matrix)
+            if (need_inverse) {
+                inverse_info_beta <- dispersion * chol2inv(R_matrix)
+            }
+
+            # Hat Values (only if needed and we have QR)
+            if (need_hatvalues) {
+                Q_matrix <- qr.Q(qr_decomposition)
+                hatvalues <- .rowSums(Q_matrix * Q_matrix, nobs, nvars, TRUE)
+            }
         }
     }
 
@@ -122,9 +154,15 @@ compute_fit <- function(pars, y, x, weights, offset, family,
     d1mus_for_gradient <- family$mu.eta(etas_for_gradient)
     varmus_for_gradient <- family$variance(mus_for_gradient)
 
-    score_components_beta <- weights * d1mus_for_gradient * (y - mus_for_gradient) /
-                            varmus_for_gradient * x
-    grad_beta <- precision * .colSums(score_components_beta, nobs, nvars, TRUE)
+    if (is_sparse) {
+        score_components_beta <- NULL
+        grad_beta <- precision * .crossprod_vec(weights * d1mus_for_gradient * (y - mus_for_gradient) /
+                                                varmus_for_gradient, x, nobs, nvars)
+    } else {
+        score_components_beta <- weights * d1mus_for_gradient * (y - mus_for_gradient) /
+                                varmus_for_gradient * x
+        grad_beta <- precision * .colSums(score_components_beta, nobs, nvars, TRUE)
+    }
 
     if (!no_dispersion) {
         grad_zeta <- 0.5 * precision^2 *
@@ -183,6 +221,62 @@ compute_fit <- function(pars, y, x, weights, offset, family,
     ), class = "brglmFit_quantities")
 }
 
+#' Compute the gradient, inverse information and adjustment for a step
+#'
+#' Everything is on the scale of the /transformed/ dispersion
+#'
+#' @param pars Vector of parameters (betas and dispersion)
+#' @param fit Object of class "brglmFit_quantities"
+#' @param level 0 for beta parameters, 1 for dispersion
+#' @param adjustment_function Score adjustment function
+#' @param x Design matrix
+#' @param nobs Number of observations
+#' @param nvars Number of variables
+#' @param weights Observation weights
+#' @param df_residual Residual degrees of freedom
+#' @param d1_transformed_dispersion First derivative of the dispersion transformation
+#' @param d2_transformed_dispersion Second derivative of the dispersion transformation
+#'
+#' @return List with grad, inverse_info, adjustment, failed_adjustment and failed_inversion
+compute_step_components <- function(pars, fit, level = 0, adjustment_function,
+                                    x, nobs, nvars, weights, df_residual,
+                                    d1_transformed_dispersion, d2_transformed_dispersion) {
+
+    if (level == 0) {
+        # Beta components
+        grad <- fit$grad_beta
+        inverse_info <- fit$inverse_info_beta
+        adjustment <- adjustment_function(pars, fit = fit, level = 0, x, nobs, nvars, weights)
+
+        failed_adjustment <- any(is.na(adjustment))
+        failed_inversion <- FALSE  # Already computed successfully
+    }
+    else {
+        # Dispersion components
+        if (fit$no_dispersion || df_residual < 1) {
+            grad <- adjustment <- inverse_info <- NA_real_
+            failed_adjustment <- failed_inversion <- FALSE
+        } else {
+            d1zeta <- eval(d1_transformed_dispersion, list(dispersion = pars[nvars + 1]))
+            d2zeta <- eval(d2_transformed_dispersion, list(dispersion = pars[nvars + 1]))
+
+            grad <- fit$grad_zeta / d1zeta
+            inverse_info <- fit$inverse_info_zeta * d1zeta^2
+            adjustment <- adjustment_function(pars, fit = fit, level = 1, x, nobs, nvars, weights) / d1zeta -
+                        0.5 * d2zeta / d1zeta^2
+
+            failed_inversion <- !is.finite(inverse_info)
+            failed_adjustment <- is.na(adjustment)
+        }
+    }
+
+    list(grad = grad,
+         inverse_info = inverse_info,
+         adjustment = adjustment,
+         failed_adjustment = failed_adjustment,
+         failed_inversion = failed_inversion)
+}
+
 #' Compute mean bias-reducing adjustment
 #'
 #' @param pars Parameter vector
@@ -197,8 +291,8 @@ compute_fit <- function(pars, y, x, weights, offset, family,
 AS_mean_adjustment <- function(pars, fit, level = 0,
                                        x, nobs, nvars, weights) {
     if (level == 0) {
-        adj <- .colSums(0.5 * fit$hatvalues * fit$d2mus / fit$d1mus * x,
-                   nobs, nvars, TRUE)
+        adj <- .crossprod_vec(0.5 * fit$hatvalues * fit$d2mus / fit$d1mus, x,
+                   nobs, nvars)
         return(adj)
     } else {
         s1 <- sum(weights^3 * fit$d3afuns, na.rm = TRUE)
@@ -223,9 +317,9 @@ AS_mean_adjustment <- function(pars, fit, level = 0,
 AS_Jeffreys_adjustment <- function(pars, fit, level = 0,
                                            x, nobs, nvars, weights, a = 0.5) {
     if (level == 0) {
-        return(2 * a * .colSums(0.5 * fit$hatvalues *
-            (2 * fit$d2mus/fit$d1mus - fit$d1varmus * fit$d1mus / fit$varmus) * x,
-            nobs, nvars, TRUE))
+        return(2 * a * .crossprod_vec(0.5 * fit$hatvalues *
+            (2 * fit$d2mus/fit$d1mus - fit$d1varmus * fit$d1mus / fit$varmus), x,
+            nobs, nvars))
     } else {
         s1 <- sum(weights^3 * fit$d3afuns, na.rm = TRUE)
         s2 <- sum(weights^2 * fit$d2afuns, na.rm = TRUE)
@@ -251,17 +345,15 @@ AS_median_adjustment <- function(pars, fit, level = 0,
         info_unscaled <- fit$info_beta / fit$precision
         inverse_info_unscaled <- fit$inverse_info_beta / fit$dispersion
 
-        b_vector <- numeric(nvars)
-        for (j in seq.int(nvars)) {
-            inverse_info_unscaled_j <- inverse_info_unscaled[j, ]
-            vcov_j <- tcrossprod(inverse_info_unscaled_j) / inverse_info_unscaled_j[j]
-            hats_j <- .rowSums((x %*% vcov_j) * x, nobs, nvars, TRUE) * fit$working_weights
-            b_vector[j] <- inverse_info_unscaled_j %*% .colSums(x * (hats_j *
-                (fit$d1mus * fit$d1varmus / (6 * fit$varmus) - 0.5 * fit$d2mus/fit$d1mus)),
-                nobs, nvars, TRUE)
-        }
-        return(.colSums(0.5 * fit$hatvalues * fit$d2mus / fit$d1mus * x,
-                   nobs, nvars, TRUE) +
+        ## The j-th hat values are w_i (x_i' v_j)^2 / v_jj, with v_j the
+        ## j-th row of inverse_info_unscaled, so all of b_vector follows
+        ## from a single n x p product instead of a loop over j
+        XV <- as.matrix(x %*% inverse_info_unscaled)
+        b_vector <- .colSums(XV^3 * (fit$working_weights *
+            (fit$d1mus * fit$d1varmus / (6 * fit$varmus) - 0.5 * fit$d2mus/fit$d1mus)),
+            nobs, nvars, TRUE) / diag(inverse_info_unscaled)
+        return(.crossprod_vec(0.5 * fit$hatvalues * fit$d2mus / fit$d1mus, x,
+                   nobs, nvars) +
            info_unscaled %*% b_vector)
     } else {
         s1 <- sum(weights^3 * fit$d3afuns, na.rm = TRUE)
@@ -285,8 +377,8 @@ AS_median_adjustment <- function(pars, fit, level = 0,
 AS_mixed_adjustment <- function(pars, fit, level = 0,
                                         x, nobs, nvars, weights) {
     if (level == 0) {
-        return(.colSums(0.5 * fit$hatvalues * fit$d2mus/fit$d1mus * x,
-                   nobs, nvars, TRUE))
+        return(.crossprod_vec(0.5 * fit$hatvalues * fit$d2mus/fit$d1mus, x,
+                   nobs, nvars))
     } else {
         s1 <- sum(weights^3 * fit$d3afuns, na.rm = TRUE)
         s2 <- sum(weights^2 * fit$d2afuns, na.rm = TRUE)
