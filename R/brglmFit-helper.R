@@ -183,6 +183,62 @@ compute_fit <- function(pars, y, x, weights, offset, family,
     ), class = "brglmFit_quantities")
 }
 
+#' Compute the gradient, inverse information and adjustment for a step
+#'
+#' Everything is on the scale of the /transformed/ dispersion
+#'
+#' @param pars Vector of parameters (betas and dispersion)
+#' @param fit Object of class "brglmFit_quantities"
+#' @param level 0 for beta parameters, 1 for dispersion
+#' @param adjustment_function Score adjustment function
+#' @param x Design matrix
+#' @param nobs Number of observations
+#' @param nvars Number of variables
+#' @param weights Observation weights
+#' @param df_residual Residual degrees of freedom
+#' @param d1_transformed_dispersion First derivative of the dispersion transformation
+#' @param d2_transformed_dispersion Second derivative of the dispersion transformation
+#'
+#' @return List with grad, inverse_info, adjustment, failed_adjustment and failed_inversion
+compute_step_components <- function(pars, fit, level = 0, adjustment_function,
+                                    x, nobs, nvars, weights, df_residual,
+                                    d1_transformed_dispersion, d2_transformed_dispersion) {
+
+    if (level == 0) {
+        # Beta components
+        grad <- fit$grad_beta
+        inverse_info <- fit$inverse_info_beta
+        adjustment <- adjustment_function(pars, fit = fit, level = 0, x, nobs, nvars, weights)
+
+        failed_adjustment <- any(is.na(adjustment))
+        failed_inversion <- FALSE  # Already computed successfully
+    }
+    else {
+        # Dispersion components
+        if (fit$no_dispersion || df_residual < 1) {
+            grad <- adjustment <- inverse_info <- NA_real_
+            failed_adjustment <- failed_inversion <- FALSE
+        } else {
+            d1zeta <- eval(d1_transformed_dispersion, list(dispersion = pars[nvars + 1]))
+            d2zeta <- eval(d2_transformed_dispersion, list(dispersion = pars[nvars + 1]))
+
+            grad <- fit$grad_zeta / d1zeta
+            inverse_info <- fit$inverse_info_zeta * d1zeta^2
+            adjustment <- adjustment_function(pars, fit = fit, level = 1, x, nobs, nvars, weights) / d1zeta -
+                        0.5 * d2zeta / d1zeta^2
+
+            failed_inversion <- !is.finite(inverse_info)
+            failed_adjustment <- is.na(adjustment)
+        }
+    }
+
+    list(grad = grad,
+         inverse_info = inverse_info,
+         adjustment = adjustment,
+         failed_adjustment = failed_adjustment,
+         failed_inversion = failed_inversion)
+}
+
 #' Compute mean bias-reducing adjustment
 #'
 #' @param pars Parameter vector

@@ -47,6 +47,9 @@
 #' @param response_adjustment a (small) positive constant or a vector
 #'     of such. Default is `NULL`. See Details.
 #' @param a power of the Jeffreys prior penalty. See Details.
+#' @param algorithm the algorithm used to solve the adjusted score
+#'     equations. Currently the only option is `"fisher_scoring"`
+#'     (quasi Fisher scoring with step halving; default).
 #' @param ... further arguments passed to [brglmControl()]. Currently
 #'     ignored in the output.
 #'
@@ -173,8 +176,10 @@ brglmControl <- function(epsilon = 1e-06, maxit = 100,
                          slowit = 1,
                          response_adjustment = NULL,
                          max_step_factor = 12,
-                         a = 1/2, ...) {
+                         a = 1/2,
+                         algorithm = "fisher_scoring", ...) {
     type <- match.arg(type)
+    algorithm <- match.arg(algorithm)
 
     if (is.character(transformation)) {
         Trans <- switch(transformation,
@@ -215,6 +220,7 @@ brglmControl <- function(epsilon = 1e-06, maxit = 100,
          transformation = transformation,
          slowit = slowit,
          max_step_factor = max_step_factor,
-         a = a)
+         a = a,
+         algorithm = algorithm)
 }
 
