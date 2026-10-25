@@ -26,6 +26,20 @@
     }
 }
 
+## Hat values w_i x_i' (X'WX)^{-1} x_i, as the row sums of squares of
+## sqrt(W) X R^{-1}, with R the triangular factor of sqrt(W) X (with its
+## columns in the order given by pivot); this is about twice as fast as
+## forming Q with qr.Q()
+.hatvalues <- function(x, working_weights, R_matrix, pivot, nobs, nvars) {
+    R_inverse <- backsolve(R_matrix, diag(nvars))
+    Z <- if (inherits(x, "sparseMatrix")) {
+             sqrt(working_weights) * as.matrix(x %*% R_inverse)
+         } else {
+             (sqrt(working_weights) * x)[, pivot, drop = FALSE] %*% R_inverse
+         }
+    .rowSums(Z * Z, nobs, nvars, TRUE)
+}
+
 #' Compute all quantities needed for a GLM fit
 #'
 #' @param pars Vector of parameters (betas and dispersion)
@@ -93,10 +107,9 @@ compute_fit <- function(pars, y, x, weights, offset, family,
                 inverse_info_beta <- dispersion * chol2inv(R_matrix)
             }
 
-            # Hat Values: w_i ||R^{-T} x_i||^2
+            # Hat Values
             if (need_hatvalues) {
-                Z <- backsolve(R_matrix, t(as.matrix(x)), transpose = TRUE)
-                hatvalues <- working_weights * .colSums(Z * Z, nvars, nobs, TRUE)
+                hatvalues <- .hatvalues(x, working_weights, R_matrix, seq_len(nvars), nobs, nvars)
             }
         } else {
             wx <- sqrt(working_weights) * x
@@ -111,8 +124,7 @@ compute_fit <- function(pars, y, x, weights, offset, family,
 
             # Hat Values (only if needed and we have QR)
             if (need_hatvalues) {
-                Q_matrix <- qr.Q(qr_decomposition)
-                hatvalues <- .rowSums(Q_matrix * Q_matrix, nobs, nvars, TRUE)
+                hatvalues <- .hatvalues(x, working_weights, R_matrix, qr_decomposition$pivot, nobs, nvars)
             }
         }
     }
