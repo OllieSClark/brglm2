@@ -128,13 +128,15 @@
 #' binomial and Poisson regression models with canonical links. See,
 #' Firth (1993) for details.
 #'
-#' When `algorithm = "trust_region"`, each iteration approximately
-#' minimises a quadratic model of the squared norm of the adjusted
-#' score for the regression parameters within a trust region, using
-#' preconditioned conjugate gradients (Steihaug, 1983), and the
-#' dispersion parameter, if any, is updated with a Newton step. The
-#' trust region can make the iteration more robust to poor starting
-#' values. `type = "correction"` always uses `"fisher_scoring"`.
+#' When `algorithm = "trust_region"`, each iteration takes the Fisher
+#' scoring step for the regression parameters if it is within a trust
+#' region, and otherwise a shorter step (Powell, 1970), which is
+#' accepted only if it reduces the (penalized) log-likelihood or, when
+#' there is none, the squared length of the Fisher scoring step; the
+#' dispersion parameter, if any, is then updated with a Newton step.
+#' Close to the solution the iteration coincides with Fisher scoring,
+#' and the trust region makes it more robust to poor starting values.
+#' `type = "correction"` always uses `"fisher_scoring"`.
 #' `options(brglm2.algorithm = "trust_region")` makes the trust region
 #' the default for all subsequent fits.
 #'
@@ -173,9 +175,9 @@
 #' Firth D (1993). Bias reduction of maximum likelihood estimates.
 #' Biometrika, **80**, 27-38. \doi{10.2307/2336755}.
 #'
-#' Steihaug T (1983). The conjugate gradient method and trust regions
-#' in large scale optimization. *SIAM Journal on Numerical Analysis*,
-#' **20**, 626-637. \doi{10.1137/0720042}.
+#' Powell M J D (1970). A hybrid method for nonlinear equations. In
+#' Rabinowitz P (ed), *Numerical Methods for Nonlinear Algebraic
+#' Equations*, 87-114. Gordon and Breach.
 #'
 #' @examples
 #'
