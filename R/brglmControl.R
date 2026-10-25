@@ -47,6 +47,9 @@
 #' @param response_adjustment a (small) positive constant or a vector
 #'     of such. Default is `NULL`. See Details.
 #' @param a power of the Jeffreys prior penalty. See Details.
+#' @param sparse whether a sparse representation of the model matrix
+#'     should be used. The options are `"auto"` (default), `"always"`
+#'     and `"never"`. See Details.
 #' @param ... further arguments passed to [brglmControl()]. Currently
 #'     ignored in the output.
 #'
@@ -120,6 +123,18 @@
 #' binomial and Poisson regression models with canonical links. See,
 #' Firth (1993) for details.
 #'
+#' When `sparse = "always"`, [brglmFit()] works with the model matrix
+#' as a sparse matrix (see [Matrix::sparseMatrix()]), using a Cholesky
+#' decomposition of the information matrix in place of a QR
+#' decomposition of the weighted model matrix. This is faster when the
+#' model matrix has many columns and most of its entries are zero, as
+#' happens, for example, with factors that have many levels. When
+#' `sparse = "auto"` (default), the sparse representation is used if
+#' the model matrix supplied to [brglmFit()] is already a sparse
+#' matrix, or if it has more than 20 columns and less than 20% of its
+#' entries are non-zero. `sparse = "never"` always uses the dense model
+#' matrix.
+#'
 #' [brglm_control()] is an alias to [brglmControl()].
 #'
 #' @return a list with components named as the arguments, including
@@ -173,8 +188,10 @@ brglmControl <- function(epsilon = 1e-06, maxit = 100,
                          slowit = 1,
                          response_adjustment = NULL,
                          max_step_factor = 12,
-                         a = 1/2, ...) {
+                         a = 1/2,
+                         sparse = c("auto", "always", "never"), ...) {
     type <- match.arg(type)
+    sparse <- match.arg(sparse)
 
     if (is.character(transformation)) {
         Trans <- switch(transformation,
@@ -215,6 +232,7 @@ brglmControl <- function(epsilon = 1e-06, maxit = 100,
          transformation = transformation,
          slowit = slowit,
          max_step_factor = max_step_factor,
-         a = a)
+         a = a,
+         sparse = sparse)
 }
 
