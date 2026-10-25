@@ -692,21 +692,24 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
             for (iter in seq.int(control$maxit)) {
                 step_factor <- 0
                 testhalf <- TRUE
-                ## Inner iteration
-                while (testhalf & step_factor < control$max_step_factor) {
-                    ## store previous values
-                    betas0 <- betas
-                    dispersion0 <- dispersion
-                    step_beta_previous <- step_beta
-                    step_zeta_previous <- step_zeta
+                ## store current values; every halved step starts from them
+                betas0 <- betas
+                dispersion0 <- dispersion
+                step_beta_previous <- step_beta
+                step_zeta_previous <- step_zeta
+                ## Inner iteration; if no halved step is shorter than the
+                ## current one, the full step is taken
+                while (testhalf & step_factor <= control$max_step_factor) {
+                    step_size <- if (step_factor == control$max_step_factor) 1 else 2^(-step_factor)
 
                     ## Update betas
-                    betas <- betas + slowit * 2^(-step_factor) * step_beta
+                    betas <- betas0 + slowit * step_size * step_beta_previous
 
                     ## Update zetas
                     if (!no_dispersion & df_residual > 0) {
+                        dispersion <- dispersion0
                         transformed_dispersion <- eval(control$Trans)
-                        transformed_dispersion <- transformed_dispersion + 2^(-step_factor) * step_zeta
+                        transformed_dispersion <- transformed_dispersion + step_size * step_zeta_previous
                         dispersion <- eval(control$inverseTrans)
                     }
 
@@ -774,7 +777,7 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                     ## Convergence criteria
                     linf_current <- max(abs(c(step_beta, step_zeta)), na.rm = TRUE)
                     linf_previous <- max(abs(c(step_beta_previous, step_zeta_previous)), na.rm = TRUE)
-                    testhalf <- linf_current > linf_previous
+                    testhalf <- linf_current > linf_previous && step_factor < control$max_step_factor
 
                     ## Continue inner loop
                     ## if (step_factor == 0 & iter == 1)  {
@@ -788,7 +791,9 @@ brglmFit <- function(x, y, weights = rep(1, nobs), start = NULL, etastart = NULL
                     }
                 }
                 failed <- failed_adjustment_beta || failed_inversion_beta || failed_adjustment_zeta || failed_inversion_zeta
-                if (failed || linf_current < control$epsilon) {
+                ## A step that is not finite (for example, with fitted
+                ## probabilities of 0 or 1) is not convergence
+                if (failed || (is.finite(linf_current) && linf_current < control$epsilon)) {
                     break
                 }
             }
